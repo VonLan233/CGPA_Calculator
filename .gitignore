@@ -1,0 +1,28 @@
+node_modules
+dist
+dist-ssr
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.sw?
+
+# Env
+*.local
+.env
+.env.*
+
+# Tesseract trained data (large binary files)
+server/*.traineddata
+
+# Claude workspace
+.claude/
