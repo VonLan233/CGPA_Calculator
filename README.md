@@ -29,7 +29,7 @@
 ### Install
 
 ```bash
-git clone https://github.com/your-username/CGPACalculator.git
+git clone https://github.com/VonLan233/CGPA_Calculator.git
 cd CGPACalculator
 npm run install:all
 ```
