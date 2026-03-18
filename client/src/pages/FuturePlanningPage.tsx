@@ -28,7 +28,8 @@ export function FuturePlanningPage() {
     scenarios: PlanningScenario[];
   } | null>(null);
 
-  const [_isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (grades.length > 0 && futureCourses.length > 0) {
@@ -40,8 +41,9 @@ export function FuturePlanningPage() {
 
   const fetchPlanSuggestions = async () => {
     setIsLoading(true);
+    setError(null);
     try {
-      const response = await fetch('http://localhost:3001/api/v1/planning/future', {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/planning/future`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -51,6 +53,7 @@ export function FuturePlanningPage() {
         }),
       });
 
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const result = await response.json();
       if (result.success) {
         setPlanResult({
@@ -60,8 +63,8 @@ export function FuturePlanningPage() {
           scenarios: result.data.scenarios,
         });
       }
-    } catch (error) {
-      console.error('获取规划建议失败:', error);
+    } catch {
+      setError('获取规划建议失败，请稍后重试');
     } finally {
       setIsLoading(false);
     }
@@ -266,6 +269,18 @@ export function FuturePlanningPage() {
           </div>
         )}
       </div>
+
+      {/* Loading */}
+      {isLoading && (
+        <div className="text-center py-8 text-gray-400 text-sm">分析中...</div>
+      )}
+
+      {/* Error */}
+      {error && (
+        <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-2xl">
+          <p className="text-sm text-red-600">{error}</p>
+        </div>
+      )}
 
       {/* 规划建议 */}
       {planResult && (

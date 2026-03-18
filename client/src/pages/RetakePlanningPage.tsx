@@ -8,6 +8,7 @@ export function RetakePlanningPage() {
   const [recommendations, setRecommendations] = useState<RetakeRecommendation[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isAchievable, setIsAchievable] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (grades.length > 0) fetchRecommendations();
@@ -15,19 +16,21 @@ export function RetakePlanningPage() {
 
   const fetchRecommendations = async () => {
     setIsLoading(true);
+    setError(null);
     try {
-      const response = await fetch('http://localhost:3001/api/v1/planning/retake', {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/planning/retake`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ grades, targetCGPA }),
       });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const result = await response.json();
       if (result.success) {
         setRecommendations(result.data.recommendations);
         setIsAchievable(result.data.isAchievable);
       }
-    } catch (error) {
-      console.error('获取重修建议失败:', error);
+    } catch {
+      setError('获取重修建议失败，请稍后重试');
     } finally {
       setIsLoading(false);
     }
@@ -95,6 +98,13 @@ export function RetakePlanningPage() {
             <p className="text-sm font-medium text-amber-800">仅靠重修可能无法达到目标</p>
             <p className="text-xs text-amber-600 mt-0.5">建议结合未来课程规划，或适当调低目标</p>
           </div>
+        </div>
+      )}
+
+      {/* Error */}
+      {error && (
+        <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-2xl">
+          <p className="text-sm text-red-600">{error}</p>
         </div>
       )}
 

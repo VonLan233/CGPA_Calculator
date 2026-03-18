@@ -78,11 +78,12 @@ export function WebImport() {
   const fetchRetake = async (grades: Grade[]) => {
     setIsRetakeLoading(true);
     try {
-      const res = await fetch('http://localhost:3001/api/v1/planning/retake', {
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/planning/retake`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ grades, targetCGPA }),
       });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       if (data.success) {
         setRecommendations(data.data.recommendations);
@@ -102,11 +103,12 @@ export function WebImport() {
     setWarnings([]);
 
     try {
-      const response = await fetch('http://localhost:3001/api/v1/scrape/grades', {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/scrape/grades`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: username.trim(), password: password.trim(), semesterId }),
       });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const result = await response.json();
       if (result.success) {
         setScrapedCourses(result.data.courses);

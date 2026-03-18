@@ -39,11 +39,12 @@ export function GradeEntryPage() {
   const fetchRetake = async () => {
     setIsRetakeLoading(true);
     try {
-      const res = await fetch('http://localhost:3001/api/v1/planning/retake', {
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/planning/retake`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ grades, targetCGPA }),
       });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       if (data.success) {
         setRecommendations(data.data.recommendations);

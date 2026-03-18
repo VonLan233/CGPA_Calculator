@@ -19,6 +19,7 @@ export function ImageUpload() {
   const [progress, setProgress] = useState(0);
   const [recognizedGrades, setRecognizedGrades] = useState<RecognizedGrade[]>([]);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
@@ -32,26 +33,28 @@ export function ImageUpload() {
     // 开始OCR识别
     setIsProcessing(true);
     setProgress(0);
+    setError(null);
 
     try {
       const formData = new FormData();
       formData.append('image', file);
 
-      const response = await fetch('http://localhost:3001/api/v1/ocr/image', {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/ocr/image`, {
         method: 'POST',
         body: formData,
       });
 
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const result = await response.json();
 
       if (result.success && result.data.grades) {
         setRecognizedGrades(result.data.grades);
       } else {
-        alert('识别失败：' + (result.error || '未知错误'));
+        setError('识别失败：' + (result.error || '未知错误'));
       }
     } catch (error) {
       console.error('OCR识别失败:', error);
-      alert('OCR服务连接失败，请确保后端服务已启动');
+      setError('OCR服务连接失败，请确保后端服务已启动');
     } finally {
       setIsProcessing(false);
       setProgress(100);
@@ -86,6 +89,13 @@ export function ImageUpload() {
 
   return (
     <div className="space-y-4">
+      {/* 错误提示 */}
+      {error && (
+        <div className="px-3 py-2.5 bg-red-50 border border-red-200 rounded-xl">
+          <p className="text-xs text-red-600">{error}</p>
+        </div>
+      )}
+
       {/* 上传区域 */}
       {recognizedGrades.length === 0 && (
         <div

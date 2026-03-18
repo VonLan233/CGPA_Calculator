@@ -3,8 +3,22 @@ import multer from 'multer';
 import { OCRService } from '../services/ocrService.js';
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage() });
-const ocrService = new OCRService();
+
+const ALLOWED_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'];
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('不支持的文件类型，仅支持 PNG、JPEG、WebP 和 PDF'));
+    }
+  },
+});
+
+export const ocrService = new OCRService();
 
 /**
  * POST /api/v1/ocr/image
