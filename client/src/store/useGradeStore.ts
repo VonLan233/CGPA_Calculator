@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Grade, CGPAResult, FutureCourse } from '../types/grade';
+import type { Grade, CGPAResult, FutureCourse, LetterGrade } from '../types/grade';
 import { GRADE_POINT_MAP, normalizeLetterGrade } from '../types/grade';
 import { calculateCGPA } from '../utils/cgpaCalculator';
 
@@ -121,18 +121,37 @@ export const useGradeStore = create<GradeState>()(
     {
       name: 'cgpa-calculator-storage',
       version: 1,
-      // v0 → v1: 厦马 4.0 制不再保留 'A+'，把历史持久化数据归一化为 'A'
+      // v0 → v1: 厦马 4.0 制不再保留 'A+'，把历史持久化数据归一化为 'A'。
+      // 注意：grades 改写后 cgpaResult 也可能持有过期值（甚至含 'A+' 分布键），
+      // 直接清空触发下游重算，避免出现 NaN/旧 key 不一致。
       migrate: (persisted: unknown, version: number) => {
         const state = (persisted ?? {}) as Partial<GradeState>;
-        if (version < 1 && Array.isArray(state.grades)) {
-          state.grades = state.grades.map((g) => {
-            const letter = normalizeLetterGrade(g.letterGrade as unknown as string);
-            return {
-              ...g,
-              letterGrade: letter,
-              gradePoint: GRADE_POINT_MAP[letter],
-            };
-          });
+        if (version < 1) {
+          if (Array.isArray(state.grades)) {
+            const migrated = state.grades.map((g) => {
+              const letter: LetterGrade = normalizeLetterGrade(
+                g.letterGrade as unknown as string
+              );
+              return {
+                ...g,
+                letterGrade: letter,
+                gradePoint: GRADE_POINT_MAP[letter],
+              };
+            });
+            // 若有任何成绩被改写，cgpaResult 重算一次保持一致
+            const changed = migrated.some(
+              (m, i) =>
+                state.grades![i].letterGrade !== m.letterGrade ||
+                state.grades![i].gradePoint !== m.gradePoint
+            );
+            state.grades = migrated;
+            if (changed) {
+              state.cgpaResult = calculateCGPA(migrated);
+            }
+          } else {
+            // 没有 grades 但旧的 cgpaResult 可能仍含 A+ 分布键，置空让下游兜底
+            state.cgpaResult = null;
+          }
         }
         return state as GradeState;
       },

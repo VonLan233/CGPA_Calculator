@@ -14,8 +14,22 @@ function createEmptyDistribution(): Record<LetterGrade, number> {
 }
 
 /**
+ * 安全获取一条 Grade 的绩点（处理 gradePoint 缺失 / NaN / A+ 历史值的情况）
+ */
+function resolveGradePoint(grade: Grade): number {
+  if (grade.gradePoint != null && !Number.isNaN(grade.gradePoint)) {
+    return grade.gradePoint;
+  }
+  const letter = normalizeLetterGrade(grade.letterGrade);
+  return GRADE_POINT_MAP[letter];
+}
+
+/**
  * 获取有效成绩（处理重修覆盖）
- * 同一课程多次修读时，取最高绩点的成绩
+ * 选项 B：同一课程多次修读时取较优绩点，重修不会拉低原成绩
+ *
+ * 注意：直接比较 grade.gradePoint 在 NaN/undefined 时会返回 false，
+ * 可能导致选错有效记录。这里用 resolveGradePoint 兜底。
  */
 function getEffectiveGrades(grades: Grade[]): Grade[] {
   const courseMap = new Map<string, Grade>();
@@ -23,8 +37,7 @@ function getEffectiveGrades(grades: Grade[]): Grade[] {
   for (const grade of grades) {
     const key = grade.courseCode || grade.courseName;
     const existing = courseMap.get(key);
-
-    if (!existing || grade.gradePoint > existing.gradePoint) {
+    if (!existing || resolveGradePoint(grade) > resolveGradePoint(existing)) {
       courseMap.set(key, grade);
     }
   }

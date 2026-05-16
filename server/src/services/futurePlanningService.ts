@@ -13,7 +13,9 @@ interface FuturePlanningResult {
 export class FuturePlanningService {
   /**
    * 找到 retake 课程对应的「原成绩」
-   * 优先用 originalGradeId 匹配，否则用 courseCode 匹配
+   * 优先用 originalGradeId 精确匹配；否则按 courseCode 匹配。
+   * 若 courseCode 有多条记录（例如同一课多次修读），取最高 gradePoint 那条，
+   * 与 calculateCGPA / option B 的去重语义一致。
    */
   private findOriginalGrade(
     course: FutureCourse,
@@ -25,7 +27,11 @@ export class FuturePlanningService {
       if (byId) return byId;
     }
     if (course.courseCode) {
-      return currentGrades.find(g => g.courseCode === course.courseCode);
+      const matches = currentGrades.filter(g => g.courseCode === course.courseCode);
+      if (matches.length === 0) return undefined;
+      return matches.reduce((best, cur) =>
+        cur.gradePoint > best.gradePoint ? cur : best
+      );
     }
     return undefined;
   }

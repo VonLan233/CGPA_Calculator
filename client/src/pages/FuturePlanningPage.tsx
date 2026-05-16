@@ -72,9 +72,15 @@ export function FuturePlanningPage() {
       setImportWarnings(data.data.warnings || []);
 
       // 按 courseCode 比对已有成绩，识别重修
-      const gradeByCode = new Map(
-        grades.filter((g) => g.courseCode).map((g) => [g.courseCode!, g])
-      );
+      // 同一 courseCode 多次修读时取「最高 gradePoint」那条，与 calculateCGPA 去重逻辑一致
+      const gradeByCode = new Map<string, typeof grades[number]>();
+      for (const g of grades) {
+        if (!g.courseCode) continue;
+        const existing = gradeByCode.get(g.courseCode);
+        if (!existing || g.gradePoint > existing.gradePoint) {
+          gradeByCode.set(g.courseCode, g);
+        }
+      }
 
       const toAdd: FutureCourse[] = scraped.map((c) => {
         const orig = gradeByCode.get(c.courseCode);
