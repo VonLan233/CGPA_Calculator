@@ -6,7 +6,7 @@ import { GRADE_POINT_MAP } from '../types/grade';
  */
 function createEmptyDistribution(): Record<LetterGrade, number> {
   return {
-    'A+': 0, 'A': 0, 'A-': 0,
+    'A': 0, 'A-': 0,
     'B+': 0, 'B': 0, 'B-': 0,
     'C+': 0, 'C': 0, 'C-': 0,
     'D+': 0, 'D': 0, 'D-': 0,

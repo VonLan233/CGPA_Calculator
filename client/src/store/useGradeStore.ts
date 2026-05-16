@@ -21,6 +21,7 @@ interface GradeState {
 
   setTargetCGPA: (cgpa: number) => void;
   addFutureCourse: (course: FutureCourse) => void;
+  addFutureCourses: (courses: FutureCourse[]) => { added: number; skipped: number };
   removeFutureCourse: (id: string) => void;
   clearFutureCourses: () => void;
 
@@ -71,6 +72,29 @@ export const useGradeStore = create<GradeState>()(
 
       addFutureCourse: (course) => {
         set((state) => ({ futureCourses: [...state.futureCourses, course] }));
+      },
+
+      addFutureCourses: (courses) => {
+        const existing = get().futureCourses;
+        // 按 courseCode 去重（无 code 时按课程名）
+        const seen = new Set(
+          existing.map((c) => c.courseCode || c.courseName)
+        );
+        const toAdd: FutureCourse[] = [];
+        let skipped = 0;
+        for (const c of courses) {
+          const key = c.courseCode || c.courseName;
+          if (seen.has(key)) {
+            skipped++;
+            continue;
+          }
+          seen.add(key);
+          toAdd.push(c);
+        }
+        if (toAdd.length > 0) {
+          set((state) => ({ futureCourses: [...state.futureCourses, ...toAdd] }));
+        }
+        return { added: toAdd.length, skipped };
       },
 
       removeFutureCourse: (id) => {

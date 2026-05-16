@@ -10,7 +10,33 @@ interface FuturePlanningResult {
 
 export class FuturePlanningService {
   /**
+   * 找到 retake 课程对应的「原成绩」
+   * 优先用 originalGradeId 匹配，否则用 courseCode 匹配
+   */
+  private findOriginalGrade(
+    course: FutureCourse,
+    currentGrades: Grade[]
+  ): Grade | undefined {
+    if (!course.isRetake) return undefined;
+    if (course.originalGradeId) {
+      const byId = currentGrades.find(g => g.id === course.originalGradeId);
+      if (byId) return byId;
+    }
+    if (course.courseCode) {
+      return currentGrades.find(g => g.courseCode === course.courseCode);
+    }
+    return undefined;
+  }
+
+  /**
    * 计算未来课程需求
+   *
+   * 区分两类未来课程：
+   *  - 非重修课（新课）：增加分母（学分）与分子（绩点）
+   *  - 重修课：分母不变（学分已在已修中），分子按 max(原, 新) 替换
+   *
+   * requiredAverageGPA 含义：假设所有重修都能取得 A（最大化收益）时，
+   * 新课需要达到的平均绩点。
    */
   calculateRequirements(params: {
     currentGrades: Grade[];
@@ -24,23 +50,62 @@ export class FuturePlanningService {
     const currentCredits = currentResult.totalCredits;
     const currentGradePoints = currentResult.totalGradePoints;
 
-    // 未来课程总学分
-    const futureCredits = futureCourses.reduce((sum, c) => sum + c.credits, 0);
+    // 分流：重修（能找到原成绩）vs 新课（含「找不到原成绩」的伪重修）
+    // 与 simulateFutureCGPA 的降级逻辑保持一致
+    const retakeCourses: { course: FutureCourse; orig: Grade }[] = [];
+    const newCourses: FutureCourse[] = [];
+    for (const c of futureCourses) {
+      if (c.isRetake) {
+        const orig = this.findOriginalGrade(c, currentGrades);
+        if (orig) {
+          retakeCourses.push({ course: c, orig });
+          continue;
+        }
+        // 找不到原成绩 → 当作新课处理
+      }
+      newCourses.push(c);
+    }
+
+    // 新课总学分（这是分母里真正新增的部分）
+    const newCredits = newCourses.reduce((sum, c) => sum + c.credits, 0);
+
+    // 最佳情况：所有重修都拿 A（4.0），累计可获得的额外绩点 delta
+    // 取 max(0, ...) 是因为选项 B 语义：重修不会拉低原成绩
+    let bestRetakeDelta = 0;
+    for (const { course, orig } of retakeCourses) {
+      const newBest = course.credits * 4.0;
+      const oldPoints = orig.credits * orig.gradePoint;
+      bestRetakeDelta += Math.max(0, newBest - oldPoints);
+    }
 
     // 计算达到目标CGPA需要的总绩点
-    const totalCredits = currentCredits + futureCredits;
+    const totalCredits = currentCredits + newCredits;
     const targetTotalPoints = targetCGPA * totalCredits;
 
-    // 未来课程需要的绩点
-    const requiredFuturePoints = targetTotalPoints - currentGradePoints;
+    // 新课需要的绩点（扣除当前已有 + 重修最大收益）
+    const requiredFromNew = targetTotalPoints - currentGradePoints - bestRetakeDelta;
 
-    // 计算需要的平均GPA
-    const requiredAverageGPA = futureCredits > 0
-      ? requiredFuturePoints / futureCredits
-      : 0;
+    // 「新课需要的平均绩点」（仅当有新课时有意义；否则为 0）
+    const requiredAverageGPA = newCredits > 0 ? requiredFromNew / newCredits : 0;
 
     // 判断是否可行
-    const isAchievable = requiredAverageGPA <= 4.0 && requiredAverageGPA >= 0;
+    // - 有新课时：要求平均绩点 ≤ 4.0 即可（≤0 表示重修最佳收益已超目标，仍算可行）
+    // - 全是重修：检查最佳重修后的 CGPA 是否能达到 target
+    // - 无任何未来课程：检查当前 CGPA 是否已达 target
+    let isAchievable: boolean;
+    if (newCredits > 0) {
+      isAchievable = requiredAverageGPA <= 4.0;
+    } else if (retakeCourses.length > 0) {
+      const bestCGPA = currentCredits > 0
+        ? (currentGradePoints + bestRetakeDelta) / currentCredits
+        : 0;
+      isAchievable = bestCGPA >= targetCGPA;
+    } else {
+      const currentCGPA = currentCredits > 0
+        ? currentGradePoints / currentCredits
+        : 0;
+      isAchievable = currentCGPA >= targetCGPA;
+    }
 
     // 生成成绩分配建议
     const suggestedDistribution = this.generateDistribution(
@@ -124,65 +189,180 @@ export class FuturePlanningService {
   }
 
   /**
-   * 生成多种规划场景
+   * 根据「未来课程需要的平均绩点」给每门课分配一个建议成绩
+   * （内部 helper：generateDistribution 关心建议元数据，这里只输出 letter grade map）
+   */
+  private buildGradeDistribution(
+    courses: FutureCourse[],
+    requiredAvgGPA: number
+  ): Record<string, LetterGrade> {
+    const result: Record<string, LetterGrade> = {};
+    for (const course of courses) {
+      const difficulty = course.estimatedDifficulty || 'medium';
+      let gp: number;
+      if (difficulty === 'easy') gp = Math.min(4.0, requiredAvgGPA + 0.3);
+      else if (difficulty === 'hard') gp = Math.max(2.0, requiredAvgGPA - 0.3);
+      else gp = requiredAvgGPA;
+      gp = Math.min(4.0, Math.max(0, gp));
+      result[course.courseName] = gradePointToLetter(gp);
+    }
+    return result;
+  }
+
+  /**
+   * 根据「未来课程需要的平均绩点」推算难度档位（用于场景卡片着色）
+   */
+  private feasibilityFromRequired(
+    requiredAvg: number,
+    achievable: boolean
+  ): PlanningScenario['feasibility'] {
+    if (!achievable) return 'very_hard';
+    if (requiredAvg <= 2.0) return 'easy';
+    if (requiredAvg <= 3.0) return 'moderate';
+    if (requiredAvg <= 3.7) return 'challenging';
+    return 'very_hard';
+  }
+
+  /**
+   * 生成多种规划场景（固定四张卡片，按业务顺序排列）：
+   *  1. 冲刺目标       — 全 A（最乐观）
+   *  2. 均衡目标       — A / A- / B+ 循环
+   *  3. 保持现有 CGPA  — 维持当前 CGPA 不下滑所需的新课平均绩点
+   *  4. 达到目标 CGPA  — 达到 targetCGPA 所需的新课平均绩点
    */
   private generateScenarios(
     currentGrades: Grade[],
     futureCourses: FutureCourse[],
     targetCGPA: number
   ): PlanningScenario[] {
+    const currentResult = calculateCGPA(currentGrades);
+    const currentCGPA = currentResult.cgpa;
+
+    // 分流重修 vs 新课（与 calculateRequirements 一致）
+    const retakeMatched: { course: FutureCourse; orig: Grade }[] = [];
+    const newCourses: FutureCourse[] = [];
+    for (const c of futureCourses) {
+      if (c.isRetake) {
+        const orig = this.findOriginalGrade(c, currentGrades);
+        if (orig) {
+          retakeMatched.push({ course: c, orig });
+          continue;
+        }
+      }
+      newCourses.push(c);
+    }
+    const newCredits = newCourses.reduce((s, c) => s + c.credits, 0);
+
+    // 最佳重修收益（用于计算「新课平均绩点最低需求」）
+    let bestRetakeDelta = 0;
+    for (const { course, orig } of retakeMatched) {
+      const newBest = course.credits * 4.0;
+      const oldPoints = orig.credits * orig.gradePoint;
+      bestRetakeDelta += Math.max(0, newBest - oldPoints);
+    }
+
+    // 给定目标 CGPA，反算新课需要的平均绩点
+    const computeRequiredAvg = (target: number): number => {
+      if (newCredits <= 0) return 0;
+      const totalCredits = currentResult.totalCredits + newCredits;
+      const targetPoints = target * totalCredits;
+      return (
+        (targetPoints - currentResult.totalGradePoints - bestRetakeDelta) / newCredits
+      );
+    };
+
+    // 给定目标 CGPA，判断是否可达
+    const isAchievableFor = (target: number, requiredAvg: number): boolean => {
+      if (newCredits > 0) {
+        return requiredAvg <= 4.0;
+      }
+      // 全是重修：检查最佳重修后的 CGPA
+      const bestCGPA = currentResult.totalCredits > 0
+        ? (currentResult.totalGradePoints + bestRetakeDelta) / currentResult.totalCredits
+        : 0;
+      return bestCGPA >= target;
+    };
+
     const scenarios: PlanningScenario[] = [];
 
-    // 场景1：全A目标
-    const allADistribution: Record<string, LetterGrade> = {};
-    futureCourses.forEach(c => { allADistribution[c.courseName] = 'A'; });
-    const allACGPA = this.simulateFutureCGPA(currentGrades, futureCourses, allADistribution);
-
+    // ── 场景1：冲刺目标（全 A）
+    const sprintDist: Record<string, LetterGrade> = {};
+    futureCourses.forEach((c) => { sprintDist[c.courseName] = 'A'; });
     scenarios.push({
       name: '冲刺目标',
-      description: '所有新课程都拿A',
-      gradeDistribution: allADistribution,
-      resultingCGPA: allACGPA,
+      description: '所有新课程都拿 A',
+      gradeDistribution: sprintDist,
+      resultingCGPA: this.simulateFutureCGPA(currentGrades, futureCourses, sprintDist),
       feasibility: 'challenging',
+      kind: 'sprint',
     });
 
-    // 场景2：混合目标
-    const mixedDistribution: Record<string, LetterGrade> = {};
+    // ── 场景2：均衡目标（A / A- / B+ 循环）
+    const balancedGrades: LetterGrade[] = ['A', 'A-', 'B+'];
+    const balancedDist: Record<string, LetterGrade> = {};
     futureCourses.forEach((c, i) => {
-      if (i % 3 === 0) mixedDistribution[c.courseName] = 'A';
-      else if (i % 3 === 1) mixedDistribution[c.courseName] = 'B+';
-      else mixedDistribution[c.courseName] = 'B';
+      balancedDist[c.courseName] = balancedGrades[i % 3];
     });
-    const mixedCGPA = this.simulateFutureCGPA(currentGrades, futureCourses, mixedDistribution);
-
     scenarios.push({
       name: '均衡目标',
-      description: 'A/B+/B混合分布',
-      gradeDistribution: mixedDistribution,
-      resultingCGPA: mixedCGPA,
+      description: 'A / A- / B+ 均衡分布',
+      gradeDistribution: balancedDist,
+      resultingCGPA: this.simulateFutureCGPA(currentGrades, futureCourses, balancedDist),
       feasibility: 'moderate',
+      kind: 'balanced',
     });
 
-    // 场景3：保守目标
-    const conservativeDistribution: Record<string, LetterGrade> = {};
-    futureCourses.forEach(c => { conservativeDistribution[c.courseName] = 'B+'; });
-    const conservativeCGPA = this.simulateFutureCGPA(
-      currentGrades, futureCourses, conservativeDistribution
-    );
-
+    // ── 场景3：保持现有 CGPA
+    const maintainRequiredAvg = computeRequiredAvg(currentCGPA);
+    const maintainAchievable = isAchievableFor(currentCGPA, maintainRequiredAvg);
+    // 分配基准：有新课时用算出的需求，全是重修时用 currentCGPA 兜底
+    // （避免 requiredAvg=0 导致所有课程都被建议 F）
+    const maintainDistAvg = newCredits > 0
+      ? Math.max(0, maintainRequiredAvg)
+      : currentCGPA;
+    const maintainDist = this.buildGradeDistribution(futureCourses, maintainDistAvg);
     scenarios.push({
-      name: '保守目标',
-      description: '所有新课程都拿B+',
-      gradeDistribution: conservativeDistribution,
-      resultingCGPA: conservativeCGPA,
-      feasibility: 'easy',
+      name: '保持现有 CGPA',
+      description: `维持在 ${currentCGPA.toFixed(2)} 不下滑`,
+      gradeDistribution: maintainDist,
+      resultingCGPA: this.simulateFutureCGPA(currentGrades, futureCourses, maintainDist),
+      feasibility: this.feasibilityFromRequired(maintainRequiredAvg, maintainAchievable),
+      kind: 'maintain',
+      requiredAvgGPA: Math.round(maintainRequiredAvg * 100) / 100,
+      isAchievable: maintainAchievable,
     });
 
-    return scenarios.sort((a, b) => b.resultingCGPA - a.resultingCGPA);
+    // ── 场景4：达到目标 CGPA
+    const targetRequiredAvg = computeRequiredAvg(targetCGPA);
+    const targetAchievable = isAchievableFor(targetCGPA, targetRequiredAvg);
+    const targetDistAvg = newCredits > 0
+      ? Math.max(0, targetRequiredAvg)
+      : targetCGPA;
+    const targetDist = this.buildGradeDistribution(futureCourses, targetDistAvg);
+    scenarios.push({
+      name: '达到目标 CGPA',
+      description: `本学期结束达到 ${targetCGPA.toFixed(2)}`,
+      gradeDistribution: targetDist,
+      resultingCGPA: this.simulateFutureCGPA(currentGrades, futureCourses, targetDist),
+      feasibility: this.feasibilityFromRequired(targetRequiredAvg, targetAchievable),
+      kind: 'target',
+      requiredAvgGPA: Math.round(targetRequiredAvg * 100) / 100,
+      isAchievable: targetAchievable,
+    });
+
+    // 固定顺序，不再按 CGPA 排序
+    return scenarios;
   }
 
   /**
    * 模拟未来CGPA
+   *
+   * 对于 isRetake=true 的课程：
+   *   - 分母（学分）不变：原课程的学分已在 currentGrades 中
+   *   - 分子（绩点）按 max(原, 新) 替换原贡献（选项 B 语义）
+   * 对于普通新课：
+   *   - 分母 += credits
+   *   - 分子 += credits × newGP
    */
   private simulateFutureCGPA(
     currentGrades: Grade[],
@@ -190,20 +370,34 @@ export class FuturePlanningService {
     distribution: Record<string, LetterGrade>
   ): number {
     const currentResult = calculateCGPA(currentGrades);
-
-    let futurePoints = 0;
-    let futureCredits = 0;
+    let totalCredits = currentResult.totalCredits;
+    let totalPoints = currentResult.totalGradePoints;
 
     for (const course of futureCourses) {
       const grade = distribution[course.courseName];
-      const gradePoint = GRADE_POINT_MAP[grade];
-      futurePoints += course.credits * gradePoint;
-      futureCredits += course.credits;
+      if (!grade) continue;
+      const newGP = GRADE_POINT_MAP[grade];
+
+      if (course.isRetake) {
+        const orig = this.findOriginalGrade(course, currentGrades);
+        if (orig) {
+          const oldPoints = orig.credits * orig.gradePoint;
+          const newPoints = course.credits * newGP;
+          // 选项 B：取较优。新成绩劣于原成绩时不变动
+          if (newPoints > oldPoints) {
+            totalPoints += newPoints - oldPoints;
+          }
+          // 学分不变，跳过累加
+          continue;
+        }
+        // 找不到原成绩：降级为新课处理
+      }
+
+      totalPoints += course.credits * newGP;
+      totalCredits += course.credits;
     }
 
-    const totalCredits = currentResult.totalCredits + futureCredits;
-    const totalPoints = currentResult.totalGradePoints + futurePoints;
-
+    if (totalCredits <= 0) return 0;
     return Math.round((totalPoints / totalCredits) * 100) / 100;
   }
 

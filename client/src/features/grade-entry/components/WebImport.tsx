@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { useGradeStore } from '../../../store/useGradeStore';
 import type { Grade, LetterGrade, RetakeRecommendation } from '../../../types/grade';
-import { GRADE_POINT_MAP, ALL_GRADES } from '../../../types/grade';
+import { GRADE_POINT_MAP, ALL_GRADE_POINTS, gradePointToLetterGrade } from '../../../types/grade';
 
 interface ScrapedCourse {
   courseCode: string;
@@ -126,9 +126,10 @@ export function WebImport() {
     }
   };
 
-  const handleGradeChange = (index: number, newGrade: LetterGrade) => {
+  const handleGradePointChange = (index: number, newGP: number) => {
+    const newLetter: LetterGrade = gradePointToLetterGrade(newGP);
     setScrapedCourses((prev) =>
-      prev.map((c, i) => i === index ? { ...c, letterGrade: newGrade, gradePoint: GRADE_POINT_MAP[newGrade] } : c)
+      prev.map((c, i) => i === index ? { ...c, letterGrade: newLetter, gradePoint: GRADE_POINT_MAP[newLetter] } : c)
     );
   };
 
@@ -251,7 +252,6 @@ export function WebImport() {
                     {showSemesterCol && <th className="px-4 py-2 text-left text-[11px] font-medium text-gray-400">学期</th>}
                     <th className="px-4 py-2 text-left text-[11px] font-medium text-gray-400">课程</th>
                     <th className="px-4 py-2 text-center text-[11px] font-medium text-gray-400">学分</th>
-                    <th className="px-4 py-2 text-center text-[11px] font-medium text-gray-400">成绩</th>
                     <th className="px-4 py-2 text-center text-[11px] font-medium text-gray-400">绩点</th>
                   </tr>
                 </thead>
@@ -275,16 +275,15 @@ export function WebImport() {
                       <td className="px-4 py-2 text-center text-gray-500">{course.credits}</td>
                       <td className="px-4 py-2 text-center">
                         <select
-                          value={course.letterGrade}
-                          onChange={(e) => handleGradeChange(index, e.target.value as LetterGrade)}
+                          value={course.gradePoint}
+                          onChange={(e) => handleGradePointChange(index, parseFloat(e.target.value))}
                           className={`px-2 py-0.5 rounded-md text-xs font-semibold border-0 cursor-pointer focus:ring-2 focus:ring-primary-300 ${getGradeStyle(course.gradePoint)}`}
                         >
-                          {ALL_GRADES.map((g) => (
-                            <option key={g} value={g}>{g}</option>
+                          {ALL_GRADE_POINTS.map((gp) => (
+                            <option key={gp} value={gp}>{gp.toFixed(1)}</option>
                           ))}
                         </select>
                       </td>
-                      <td className="px-4 py-2 text-center font-medium text-gray-600">{course.gradePoint.toFixed(1)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -325,7 +324,7 @@ export function WebImport() {
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-gray-900 leading-tight">{rec.courseName}</p>
                           <p className="text-[11px] text-gray-400 mt-0.5">
-                            {rec.credits} 学分 · {rec.currentGrade} → {rec.requiredGrade}
+                            {rec.credits} 学分 · {rec.currentGradePoint.toFixed(1)} → {GRADE_POINT_MAP[rec.requiredGrade].toFixed(1)}
                           </p>
                           <div className="flex items-center gap-2 mt-1.5">
                             <span className="text-xs font-semibold text-emerald-600">

@@ -37,10 +37,10 @@ export class RetakePlanningService {
       };
     }
 
-    // 找出所有可重修的课程（非A+/A的课程）
+    // 找出所有可重修的课程（非 A 的课程）
     const retakeCandidates = grades
       .filter(g => !excludeCourses.includes(g.courseName))
-      .filter(g => g.letterGrade !== 'A+' && g.letterGrade !== 'A')
+      .filter(g => g.letterGrade !== 'A')
       .map(g => this.analyzeRetakeImpact(g, grades, targetCGPA));
 
     // 按性价比排序
