@@ -71,9 +71,17 @@ export class FuturePlanningService {
 
     // 最佳情况：所有重修都拿 A（4.0），累计可获得的额外绩点 delta
     // 取 max(0, ...) 是因为选项 B 语义：重修不会拉低原成绩
+    // 注意：分母锚定在原课程的 credits 上（重修不改变 totalCredits），
+    // 所以新贡献也按 orig.credits 计算，避免学分不一致导致替换失衡。
     let bestRetakeDelta = 0;
     for (const { course, orig } of retakeCourses) {
-      const newBest = course.credits * 4.0;
+      if (course.credits !== orig.credits) {
+        console.warn(
+          `[future-planning] retake credit mismatch: ${course.courseName} ` +
+          `course=${course.credits} vs orig=${orig.credits}, using orig`
+        );
+      }
+      const newBest = orig.credits * 4.0;
       const oldPoints = orig.credits * orig.gradePoint;
       bestRetakeDelta += Math.max(0, newBest - oldPoints);
     }
@@ -381,8 +389,9 @@ export class FuturePlanningService {
       if (course.isRetake) {
         const orig = this.findOriginalGrade(course, currentGrades);
         if (orig) {
+          // 分母锚定在 orig.credits 上（totalCredits 未变），所以新贡献也按 orig.credits 计算
           const oldPoints = orig.credits * orig.gradePoint;
-          const newPoints = course.credits * newGP;
+          const newPoints = orig.credits * newGP;
           // 选项 B：取较优。新成绩劣于原成绩时不变动
           if (newPoints > oldPoints) {
             totalPoints += newPoints - oldPoints;

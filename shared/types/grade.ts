@@ -49,6 +49,20 @@ export function gradePointToLetterGrade(gp: number): LetterGrade {
 }
 
 /**
+ * 防御性归一化：处理历史数据（例如已被持久化的 'A+'）或外部输入里的非法值。
+ * - 'A+' 历史值 → 'A'
+ * - 其他合法 letter 原样返回
+ * - 完全识别不出的值返回 'F'
+ */
+export function normalizeLetterGrade(input: string | null | undefined): LetterGrade {
+  if (!input) return 'F';
+  const v = String(input).trim().toUpperCase();
+  if (v === 'A+') return 'A';
+  if ((ALL_GRADES as readonly string[]).includes(v)) return v as LetterGrade;
+  return 'F';
+}
+
+/**
  * 课程成绩记录
  */
 export interface Grade {

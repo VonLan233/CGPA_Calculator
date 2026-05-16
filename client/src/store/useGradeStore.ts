@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Grade, CGPAResult, FutureCourse } from '../types/grade';
+import { GRADE_POINT_MAP, normalizeLetterGrade } from '../types/grade';
 import { calculateCGPA } from '../utils/cgpaCalculator';
 
 interface GradeState {
@@ -115,6 +116,22 @@ export const useGradeStore = create<GradeState>()(
     }),
     {
       name: 'cgpa-calculator-storage',
+      version: 1,
+      // v0 → v1: 厦马 4.0 制不再保留 'A+'，把历史持久化数据归一化为 'A'
+      migrate: (persisted: unknown, version: number) => {
+        const state = (persisted ?? {}) as Partial<GradeState>;
+        if (version < 1 && Array.isArray(state.grades)) {
+          state.grades = state.grades.map((g) => {
+            const letter = normalizeLetterGrade(g.letterGrade as unknown as string);
+            return {
+              ...g,
+              letterGrade: letter,
+              gradePoint: GRADE_POINT_MAP[letter],
+            };
+          });
+        }
+        return state as GradeState;
+      },
     }
   )
 );

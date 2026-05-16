@@ -1,4 +1,4 @@
-import { Grade, CGPAResult, LetterGrade, GRADE_POINT_MAP } from '../types/grade.js';
+import { Grade, CGPAResult, LetterGrade, GRADE_POINT_MAP, normalizeLetterGrade } from '../types/grade.js';
 
 /**
  * 创建空的成绩分布对象
@@ -52,12 +52,17 @@ export function calculateCGPA(grades: Grade[]): CGPAResult {
   const gradeDistribution = createEmptyDistribution();
 
   for (const grade of effectiveGrades) {
-    const gradePoint = grade.gradePoint ?? GRADE_POINT_MAP[grade.letterGrade];
+    // 防御性归一化：历史持久化数据或外部输入可能仍是 'A+'，统一映射为 'A'
+    const letter = normalizeLetterGrade(grade.letterGrade);
+    const gradePoint =
+      grade.gradePoint != null && !Number.isNaN(grade.gradePoint)
+        ? grade.gradePoint
+        : GRADE_POINT_MAP[letter];
     const weightedPoint = grade.credits * gradePoint;
 
     totalCredits += grade.credits;
     totalGradePoints += weightedPoint;
-    gradeDistribution[grade.letterGrade]++;
+    gradeDistribution[letter]++;
   }
 
   const cgpa = totalCredits > 0 ? totalGradePoints / totalCredits : 0;
