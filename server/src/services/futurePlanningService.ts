@@ -4,6 +4,8 @@ import { calculateCGPA, gradePointToLetter } from '../shared/utils/cgpaCalculato
 interface FuturePlanningResult {
   isAchievable: boolean;
   requiredAverageGPA: number;
+  /** 当为 true 时表示在最优重修假设下，目标已经达成，新课没有下限要求 */
+  reachableByRetakesAlone?: boolean;
   suggestedDistribution: CoursePlanSuggestion[];
   scenarios: PlanningScenario[];
 }
@@ -93,16 +95,23 @@ export class FuturePlanningService {
     // 新课需要的绩点（扣除当前已有 + 重修最大收益）
     const requiredFromNew = targetTotalPoints - currentGradePoints - bestRetakeDelta;
 
-    // 「新课需要的平均绩点」（仅当有新课时有意义；否则为 0）
-    const requiredAverageGPA = newCredits > 0 ? requiredFromNew / newCredits : 0;
+    // 原始需求（可能为负——表示"在最优重修假设下，目标已经达成，新课无下限"）
+    const rawRequiredAverageGPA =
+      newCredits > 0 ? requiredFromNew / newCredits : 0;
+
+    // 对外输出统一 clamp 到 [0, +∞)，负数对消费者无意义
+    const requiredAverageGPA = Math.max(0, rawRequiredAverageGPA);
+
+    // 当 raw 为负时，标记"在最优重修后已超目标"
+    const reachableByRetakesAlone = newCredits > 0 && rawRequiredAverageGPA <= 0;
 
     // 判断是否可行
-    // - 有新课时：要求平均绩点 ≤ 4.0 即可（≤0 表示重修最佳收益已超目标，仍算可行）
+    // - 有新课时：原始需求 ≤ 4.0（≤ 0 也算可行）
     // - 全是重修：检查最佳重修后的 CGPA 是否能达到 target
     // - 无任何未来课程：检查当前 CGPA 是否已达 target
     let isAchievable: boolean;
     if (newCredits > 0) {
-      isAchievable = requiredAverageGPA <= 4.0;
+      isAchievable = rawRequiredAverageGPA <= 4.0;
     } else if (retakeCourses.length > 0) {
       const bestCGPA = currentCredits > 0
         ? (currentGradePoints + bestRetakeDelta) / currentCredits
@@ -131,6 +140,7 @@ export class FuturePlanningService {
     return {
       isAchievable,
       requiredAverageGPA: Math.round(requiredAverageGPA * 100) / 100,
+      reachableByRetakesAlone,
       suggestedDistribution,
       scenarios,
     };
@@ -262,9 +272,17 @@ export class FuturePlanningService {
     const newCredits = newCourses.reduce((s, c) => s + c.credits, 0);
 
     // 最佳重修收益（用于计算「新课平均绩点最低需求」）
+    // 分母锚定在原课程的 credits 上，新贡献也按 orig.credits 计算，
+    // 与 calculateRequirements / simulateFutureCGPA 保持一致
     let bestRetakeDelta = 0;
     for (const { course, orig } of retakeMatched) {
-      const newBest = course.credits * 4.0;
+      if (course.credits !== orig.credits) {
+        console.warn(
+          `[future-planning] retake credit mismatch in scenarios: ${course.courseName} ` +
+          `course=${course.credits} vs orig=${orig.credits}, using orig`
+        );
+      }
+      const newBest = orig.credits * 4.0;
       const oldPoints = orig.credits * orig.gradePoint;
       bestRetakeDelta += Math.max(0, newBest - oldPoints);
     }
@@ -336,7 +354,7 @@ export class FuturePlanningService {
       resultingCGPA: this.simulateFutureCGPA(currentGrades, futureCourses, maintainDist),
       feasibility: this.feasibilityFromRequired(maintainRequiredAvg, maintainAchievable),
       kind: 'maintain',
-      requiredAvgGPA: Math.round(maintainRequiredAvg * 100) / 100,
+      requiredAvgGPA: Math.round(Math.max(0, maintainRequiredAvg) * 100) / 100,
       isAchievable: maintainAchievable,
     });
 
@@ -354,7 +372,7 @@ export class FuturePlanningService {
       resultingCGPA: this.simulateFutureCGPA(currentGrades, futureCourses, targetDist),
       feasibility: this.feasibilityFromRequired(targetRequiredAvg, targetAchievable),
       kind: 'target',
-      requiredAvgGPA: Math.round(targetRequiredAvg * 100) / 100,
+      requiredAvgGPA: Math.round(Math.max(0, targetRequiredAvg) * 100) / 100,
       isAchievable: targetAchievable,
     });
 

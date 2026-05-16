@@ -91,10 +91,11 @@ export function FuturePlanningPage() {
       });
 
       const { added, skipped } = addFutureCourses(toAdd);
-      const retakeCount = toAdd.filter((c) => c.isRetake).length;
+      // 重修数从「实际加入」的子集统计，避免被去重跳过的课程计入
+      const retakeCount = added.filter((c) => c.isRetake).length;
 
       const parts: string[] = [];
-      parts.push(`成功导入 ${added} 门课程`);
+      parts.push(`成功导入 ${added.length} 门课程`);
       if (retakeCount > 0) parts.push(`其中 ${retakeCount} 门为重修`);
       if (skipped > 0) parts.push(`跳过 ${skipped} 门已存在`);
       setImportMessage(parts.join('，'));
@@ -852,7 +853,10 @@ export function FuturePlanningPage() {
                         </p>
                       </div>
                       <button
+                        type="button"
                         onClick={() => setExpandedScenario(null)}
+                        aria-label="关闭建议分配"
+                        title="关闭建议分配"
                         className="text-xs text-gray-400 hover:text-gray-600"
                       >
                         ✕

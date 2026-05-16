@@ -1,4 +1,4 @@
-import { Grade, LetterGrade, RetakeRecommendation, GRADE_POINT_MAP } from '../shared/types/grade.js';
+import { Grade, LetterGrade, RetakeRecommendation, GRADE_POINT_MAP, normalizeLetterGrade } from '../shared/types/grade.js';
 import { calculateCGPA, gradePointToLetter } from '../shared/utils/cgpaCalculator.js';
 
 interface RetakeAnalysis {
@@ -38,9 +38,11 @@ export class RetakePlanningService {
     }
 
     // 找出所有可重修的课程（非 A 的课程）
+    // 通过 normalizeLetterGrade 把历史/外部输入里的 'A+' 也一并视为 'A'，
+    // 避免它被误纳入可重修候选
     const retakeCandidates = grades
       .filter(g => !excludeCourses.includes(g.courseName))
-      .filter(g => g.letterGrade !== 'A')
+      .filter(g => normalizeLetterGrade(g.letterGrade) !== 'A')
       .map(g => this.analyzeRetakeImpact(g, grades, targetCGPA));
 
     // 按性价比排序

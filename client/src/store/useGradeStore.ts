@@ -22,7 +22,11 @@ interface GradeState {
 
   setTargetCGPA: (cgpa: number) => void;
   addFutureCourse: (course: FutureCourse) => void;
-  addFutureCourses: (courses: FutureCourse[]) => { added: number; skipped: number };
+  /**
+   * 批量添加 future courses，按 courseCode/courseName 去重。
+   * 返回实际加入的课程（用于调用方统计正确的重修数等）。
+   */
+  addFutureCourses: (courses: FutureCourse[]) => { added: FutureCourse[]; skipped: number };
   removeFutureCourse: (id: string) => void;
   clearFutureCourses: () => void;
 
@@ -95,7 +99,7 @@ export const useGradeStore = create<GradeState>()(
         if (toAdd.length > 0) {
           set((state) => ({ futureCourses: [...state.futureCourses, ...toAdd] }));
         }
-        return { added: toAdd.length, skipped };
+        return { added: toAdd, skipped };
       },
 
       removeFutureCourse: (id) => {
