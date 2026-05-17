@@ -1,6 +1,6 @@
 import { useGradeStore } from '../../store/useGradeStore';
 import type { LetterGrade } from '../../types/grade';
-import { GRADE_POINT_MAP, ALL_GRADES } from '../../types/grade';
+import { GRADE_POINT_MAP, ALL_GRADE_POINTS, gradePointToLetterGrade } from '../../types/grade';
 
 export function GradeTable() {
   const { grades, removeGrade, updateGrade } = useGradeStore();
@@ -16,10 +16,11 @@ export function GradeTable() {
     return 'bg-red-50 text-red-700';
   };
 
-  const handleGradeChange = (id: string, newGrade: LetterGrade) => {
+  const handleGradePointChange = (id: string, newGP: number) => {
+    const newLetter: LetterGrade = gradePointToLetterGrade(newGP);
     updateGrade(id, {
-      letterGrade: newGrade,
-      gradePoint: GRADE_POINT_MAP[newGrade],
+      letterGrade: newLetter,
+      gradePoint: GRADE_POINT_MAP[newLetter],
     });
   };
 
@@ -48,7 +49,6 @@ export function GradeTable() {
             <tr>
               <th className="px-5 py-2.5 text-left text-xs font-medium text-gray-500">课程</th>
               <th className="px-5 py-2.5 text-center text-xs font-medium text-gray-500">学分</th>
-              <th className="px-5 py-2.5 text-center text-xs font-medium text-gray-500">成绩</th>
               <th className="px-5 py-2.5 text-center text-xs font-medium text-gray-500">绩点</th>
               <th className="px-5 py-2.5 w-12"></th>
             </tr>
@@ -58,7 +58,7 @@ export function GradeTable() {
               <>{/* Fragment with key on the semester header row */}
                 {showSemesterHeaders && (
                   <tr key={`sem-${sem}`}>
-                    <td colSpan={5} className="px-5 py-2 bg-slate-50 border-y border-gray-100">
+                    <td colSpan={4} className="px-5 py-2 bg-slate-50 border-y border-gray-100">
                       <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{sem}</span>
                     </td>
                   </tr>
@@ -81,16 +81,15 @@ export function GradeTable() {
                     <td className="px-5 py-3 text-center text-gray-600">{grade.credits}</td>
                     <td className="px-5 py-3 text-center">
                       <select
-                        value={grade.letterGrade}
-                        onChange={(e) => handleGradeChange(grade.id, e.target.value as LetterGrade)}
+                        value={grade.gradePoint}
+                        onChange={(e) => handleGradePointChange(grade.id, parseFloat(e.target.value))}
                         className={`px-2 py-0.5 rounded-md text-xs font-semibold border-0 cursor-pointer focus:ring-2 focus:ring-primary-300 ${getGradeStyle(grade.gradePoint)}`}
                       >
-                        {ALL_GRADES.map((g) => (
-                          <option key={g} value={g}>{g}</option>
+                        {ALL_GRADE_POINTS.map((gp) => (
+                          <option key={gp} value={gp}>{gp.toFixed(1)}</option>
                         ))}
                       </select>
                     </td>
-                    <td className="px-5 py-3 text-center font-medium text-gray-700">{grade.gradePoint.toFixed(1)}</td>
                     <td className="px-5 py-3 text-center">
                       <button
                         onClick={() => removeGrade(grade.id)}

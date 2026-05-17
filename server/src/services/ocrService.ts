@@ -120,21 +120,13 @@ export class OCRService {
   }
 
   /**
-   * 标准化成绩等级
+   * 标准化成绩等级（厦大马来西亚分校无 A+，识别到的 A+ 统一归并为 A）
    */
   private normalizeGrade(grade: string): LetterGrade {
-    const normalized = grade.toUpperCase().trim();
-    const validGrades: LetterGrade[] = [
-      'A+', 'A', 'A-', 'B+', 'B', 'B-',
-      'C+', 'C', 'C-', 'D+', 'D', 'D-', 'F'
-    ];
+    let normalized = grade.toUpperCase().trim();
 
-    if (validGrades.includes(normalized as LetterGrade)) {
-      return normalized as LetterGrade;
-    }
-
-    // 处理常见OCR错误
-    const corrections: Record<string, LetterGrade> = {
+    // OCR 常见误识别先做形近字符替换
+    const corrections: Record<string, string> = {
       'A十': 'A+',
       'A一': 'A-',
       'B十': 'B+',
@@ -143,8 +135,23 @@ export class OCRService {
       '8': 'B',
       '8-': 'B-',
     };
+    if (corrections[normalized]) {
+      normalized = corrections[normalized];
+    }
 
-    return corrections[normalized] || 'F';
+    // 防御性归并 A+ → A
+    if (normalized === 'A+') normalized = 'A';
+
+    const validGrades: LetterGrade[] = [
+      'A', 'A-', 'B+', 'B', 'B-',
+      'C+', 'C', 'C-', 'D+', 'D', 'D-', 'F'
+    ];
+
+    if (validGrades.includes(normalized as LetterGrade)) {
+      return normalized as LetterGrade;
+    }
+
+    return 'F';
   }
 
   /**

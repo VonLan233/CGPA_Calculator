@@ -6,6 +6,7 @@ import { GradeTable } from '../components/grade/GradeTable';
 import { CGPADisplay } from '../components/grade/CGPADisplay';
 import { useGradeStore } from '../store/useGradeStore';
 import type { RetakeRecommendation } from '../types/grade';
+import { GRADE_POINT_MAP } from '../types/grade';
 
 type EntryMode = 'web' | 'manual' | 'image';
 
@@ -178,7 +179,7 @@ export function GradeEntryPage() {
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium text-gray-900 leading-tight">{rec.courseName}</p>
                             <p className="text-[11px] text-gray-400 mt-0.5">
-                              {rec.credits} 学分 · {rec.currentGrade} → {rec.requiredGrade}
+                              {rec.credits} 学分 · {rec.currentGradePoint.toFixed(1)} → {GRADE_POINT_MAP[rec.requiredGrade].toFixed(1)}
                             </p>
                             <div className="flex items-center gap-2 mt-1.5">
                               <span className="text-xs font-semibold text-emerald-600">

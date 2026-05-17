@@ -100,7 +100,7 @@ export function ManualEntry() {
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            成绩等级 <span className="text-red-500">*</span>
+            成绩绩点 <span className="text-red-500">*</span>
           </label>
           <GradeSelector
             value={formData.letterGrade}

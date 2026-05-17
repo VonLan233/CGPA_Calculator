@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useGradeStore } from '../store/useGradeStore';
 import { CGPADisplay } from '../components/grade/CGPADisplay';
 import type { RetakeRecommendation } from '../types/grade';
+import { GRADE_POINT_MAP } from '../types/grade';
 
 export function RetakePlanningPage() {
   const { grades, targetCGPA, setTargetCGPA, cgpaResult } = useGradeStore();
@@ -132,7 +133,7 @@ export function RetakePlanningPage() {
                   <div className="flex-1 min-w-0">
                     <h4 className="font-medium text-gray-900">{rec.courseName}</h4>
                     <p className="text-xs text-gray-400 mt-0.5">
-                      {rec.credits} 学分 · 当前 {rec.currentGrade} → 建议达到 {rec.requiredGrade}
+                      {rec.credits} 学分 · 当前绩点 {rec.currentGradePoint.toFixed(1)} → 建议达到 {GRADE_POINT_MAP[rec.requiredGrade].toFixed(1)}
                     </p>
                     <p className="text-xs text-gray-500 mt-1.5 leading-relaxed">{rec.reasoning}</p>
                   </div>

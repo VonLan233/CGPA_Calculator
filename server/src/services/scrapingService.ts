@@ -35,6 +35,20 @@ export interface ScrapeResult {
   warnings: string[];
 }
 
+/**
+ * 当前学期已选课程（尚未有成绩）
+ */
+export interface CurrentSemesterCourse {
+  courseCode: string;
+  courseName: string;
+  credits: number;
+}
+
+export interface CurrentSemesterResult {
+  courses: CurrentSemesterCourse[];
+  warnings: string[];
+}
+
 function isLetterGrade(value: string): value is LetterGrade {
   return ALL_GRADES.includes(value as LetterGrade);
 }
@@ -265,6 +279,145 @@ export class ScrapingService {
   }
 
   /**
+   * Scrape currently enrolled courses for the current semester.
+   * URL: /student/index.php?c=Default&a=Wdkc (auto-selects current semester)
+   *
+   * Columns: No. | Course Code | Course Name | Credit | Lecturer | Time & Venue
+   *          | Teaching Week | Registration Type | Student No.
+   * Indices:  0  |     1       |      2      |   3    |    4     |       5
+   *          |        6       |          7        |       8
+   *
+   * Same course code can appear multiple times (Lab + Lecture); they are
+   * deduplicated by stripped course code.
+   */
+  async scrapeCurrentSemester(sessionCookie: string): Promise<CurrentSemesterResult> {
+    const warnings: string[] = [];
+    const url = `${this.baseUrl}/student/index.php?c=Default&a=Wdkc`;
+
+    let html: string;
+    try {
+      const response = await axios.get(url, {
+        headers: {
+          Cookie: sessionCookie,
+          'User-Agent': UA,
+        },
+        timeout: this.timeout,
+        maxRedirects: 5,
+        validateStatus: () => true,
+      });
+
+      if (response.status === 403) {
+        throw new ScrapingError('会话已过期，请重新登录', 'AUTH_EXPIRED');
+      }
+
+      html = response.data;
+    } catch (error) {
+      if (error instanceof ScrapingError) throw error;
+      if (axios.isAxiosError(error)) {
+        if (error.code === 'ECONNABORTED') {
+          throw new ScrapingError('请求超时，请检查网络连接', 'TIMEOUT');
+        }
+        throw new ScrapingError(`网络请求失败: ${error.message}`, 'NETWORK_ERROR');
+      }
+      throw new ScrapingError('未知网络错误', 'NETWORK_ERROR');
+    }
+
+    if (typeof html === 'string' && html.includes('拒绝访问')) {
+      throw new ScrapingError('会话已过期，请重新登录', 'AUTH_EXPIRED');
+    }
+
+    const $ = cheerio.load(html);
+    const courses = this.parseCurrentSemesterTable($, warnings);
+
+    if (courses.length === 0) {
+      throw new ScrapingError('未找到本学期课程数据', 'NO_DATA');
+    }
+
+    return { courses, warnings };
+  }
+
+  /**
+   * Parse current-semester course list table from #data_table.
+   * Lab + Lecture entries of the same courseCode are merged into one.
+   */
+  private parseCurrentSemesterTable(
+    $: ReturnType<typeof cheerio.load>,
+    warnings: string[]
+  ): CurrentSemesterCourse[] {
+    const dataTable = $('#data_table');
+    if (dataTable.length === 0) {
+      throw new ScrapingError('页面中未找到课程表格', 'PARSE_ERROR');
+    }
+
+    // courseCode (stripped of *) -> merged course
+    const byKey = new Map<string, CurrentSemesterCourse>();
+
+    const rows = dataTable.find('tbody tr');
+    rows.each((_: number, el: unknown) => {
+      const row = $(el as cheerio.Element);
+      const cells = row.find('td');
+
+      // Skip summary rows or malformed rows
+      if (cells.length < 4) return;
+      if (cells.first().attr('colspan')) return;
+
+      const rawCode = cells.eq(1).text().trim();
+      const rawName = cells.eq(2).text().trim();
+      const creditsText = cells.eq(3).text().trim();
+
+      if (!rawCode || !rawName) return;
+
+      const credits = parseFloat(creditsText);
+      if (isNaN(credits) || credits <= 0) {
+        warnings.push(`跳过课程 "${rawName}": 学分无效 (${creditsText})`);
+        return;
+      }
+
+      // Strip trailing * (means selective major course — informational only)
+      const courseCode = rawCode.replace(/\*+$/, '').trim();
+
+      // Clean course name: drop component markers like "(CST Lab)", "(CST Lecture)",
+      // bare faculty tags like "(CST)", and group markers like "(Group 2)"
+      const courseName = rawName
+        .replace(/\s*\([A-Z]+\s+(Lab|Lecture)\)/gi, '')
+        .replace(/\s*\([A-Z]{2,}\)/g, '')
+        .replace(/\s*\(Group\s+\d+\)/gi, '')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+
+      if (!courseName) return;
+
+      // Dedup: same courseCode = same course (Lab + Lecture share credit count)
+      const existing = byKey.get(courseCode);
+      if (existing) {
+        // Sanity check: credits should match. If they don't, keep the larger one.
+        if (existing.credits !== credits) {
+          warnings.push(
+            `课程 "${courseName}" (${courseCode}) 的多条记录学分不一致 (${existing.credits} vs ${credits})，取较大值`
+          );
+          existing.credits = Math.max(existing.credits, credits);
+        }
+        return;
+      }
+
+      byKey.set(courseCode, { courseCode, courseName, credits });
+    });
+
+    return Array.from(byKey.values());
+  }
+
+  /**
+   * Full flow: login + scrape current semester courses
+   */
+  async loginAndScrapeCurrentSemester(params: {
+    username: string;
+    password: string;
+  }): Promise<CurrentSemesterResult> {
+    const sessionCookie = await this.login(params.username, params.password);
+    return this.scrapeCurrentSemester(sessionCookie);
+  }
+
+  /**
    * Full flow: login + scrape grades (single semester or all)
    */
   async loginAndScrape(params: {
@@ -330,8 +483,10 @@ export class ScrapingService {
         return;
       }
 
-      const normalizedGrade = gradeText.replace(/\s+/g, '').toUpperCase()
+      let normalizedGrade = gradeText.replace(/\s+/g, '').toUpperCase()
         .replace('＋', '+').replace('－', '-');
+      // 厦大马来西亚分校无 A+ 制，若门户返回 A+ 统一按 A 处理
+      if (normalizedGrade === 'A+') normalizedGrade = 'A';
 
       if (!isLetterGrade(normalizedGrade)) {
         warnings.push(`跳过课程 "${courseName}": 无法识别成绩 "${gradeText}"`);
@@ -409,8 +564,10 @@ export class ScrapingService {
         return;
       }
 
-      const normalizedGrade = gradeText.replace(/\s+/g, '').toUpperCase()
+      let normalizedGrade = gradeText.replace(/\s+/g, '').toUpperCase()
         .replace('＋', '+').replace('－', '-');
+      // 厦大马来西亚分校无 A+ 制，若门户返回 A+ 统一按 A 处理
+      if (normalizedGrade === 'A+') normalizedGrade = 'A';
 
       if (!isLetterGrade(normalizedGrade)) {
         warnings.push(`跳过课程 "${courseName}": 无法识别成绩 "${gradeText}"`);

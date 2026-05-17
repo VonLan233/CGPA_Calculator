@@ -194,7 +194,7 @@ export function ImageUpload() {
                     </p>
                   </div>
                   <span className="px-2.5 py-0.5 rounded-full text-sm font-medium bg-blue-100 text-blue-800">
-                    {grade.letterGrade}
+                    {GRADE_POINT_MAP[grade.letterGrade].toFixed(1)}
                   </span>
                 </div>
               ))}
